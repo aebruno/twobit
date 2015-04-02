@@ -9,13 +9,22 @@ import (
     "os"
 )
 
-func TestHeader(t *testing.T) {
+func openTestTwoBit() (*TwoBit, error) {
     f, err := os.Open("examples/simple.2bit")
     if err != nil {
-        t.Errorf("Failed to open example file")
+        return nil, err
     }
 
     tb, err := NewReader(f)
+    if err != nil {
+        return nil, err
+    }
+
+    return tb, nil
+}
+
+func TestHeader(t *testing.T) {
+    tb, err := openTestTwoBit()
     if err != nil {
         t.Errorf("%s", err)
     }
@@ -41,13 +50,41 @@ func TestHeader(t *testing.T) {
     }
 }
 
-func TestRead(t *testing.T) {
-    f, err := os.Open("examples/simple.2bit")
+func TestNamesLength(t *testing.T) {
+    tb, err := openTestTwoBit()
     if err != nil {
-        t.Errorf("Failed to open example file")
+        t.Errorf("%s", err)
     }
 
-    tb, err := NewReader(f)
+    names := tb.Names()
+
+    if len(names) != 1 {
+        t.Errorf("Invalid length of sequence names: %d != %d", len(names), 1)
+    }
+
+    if names[0] != "ex1" {
+        t.Errorf("Invalid sequence name: %s != %s", names[0], "ex1")
+    }
+
+    sz, err := tb.Length("ex1")
+    if err != nil {
+        t.Errorf("%s", err)
+    }
+    if sz != 21 {
+        t.Errorf("Invalid length of ex1 sequence: %d != %d", sz, 21)
+    }
+
+    sz, err = tb.LengthNoN("ex1")
+    if err != nil {
+        t.Errorf("%s", err)
+    }
+    if sz != 15 {
+        t.Errorf("Invalid lengthNoN of ex1 sequence: %d != %d", sz, 15)
+    }
+}
+
+func TestRead(t *testing.T) {
+    tb, err := openTestTwoBit()
     if err != nil {
         t.Errorf("%s", err)
     }

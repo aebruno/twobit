@@ -22,6 +22,14 @@ type header struct {
     byteOrder   binary.ByteOrder
 }
 
+// seqRecord stores sequence record from the file index
+type seqRecord struct {
+    dnaSize      uint32
+    nBlocks      map[int]int
+    mBlocks      map[int]int
+    reserved     uint32
+}
+
 // TwoBit stores the file index and header information of the 2bit file
 type TwoBit struct {
     reader       io.ReadSeeker
@@ -96,7 +104,7 @@ func (tb *TwoBit) parseHeader() (error) {
 }
 
 // Parse the nBlock and mBlock coordinates
-func (tb *TwoBit) readBlockCoords() (map[int]int, error) {
+func (tb *TwoBit) parseBlockCoords() (map[int]int, error) {
     var count uint32
     err := binary.Read(tb.reader, tb.hdr.byteOrder, &count)
     if err != nil {
@@ -128,6 +136,56 @@ func (tb *TwoBit) readBlockCoords() (map[int]int, error) {
     return blocks, nil
 }
 
+// Parse the sequence record information
+func (tb *TwoBit) parseRecord(name string, coords bool) (*seqRecord, error) {
+    rec := new(seqRecord)
+
+    offset, ok := tb.index[name]
+    if !ok {
+        return nil, fmt.Errorf("Invalid sequence name: %s", name)
+    }
+
+    tb.reader.Seek(int64(offset), 0)
+
+    err := binary.Read(tb.reader, tb.hdr.byteOrder, &rec.dnaSize)
+    if err != nil {
+        return nil, fmt.Errorf("Failed to read dnaSize: %s", err)
+    }
+
+    if coords {
+        rec.nBlocks, err = tb.parseBlockCoords()
+        if err != nil {
+            return nil, fmt.Errorf("Failed to read nBlocks: %s", err)
+        }
+
+        rec.mBlocks, err = tb.parseBlockCoords()
+        if err != nil {
+            return nil, fmt.Errorf("Failed to read mBlocks: %s", err)
+        }
+
+        err = binary.Read(tb.reader, tb.hdr.byteOrder, &rec.reserved)
+        if err != nil {
+            return nil, fmt.Errorf("Failed to read reserved: %s", err)
+        }
+
+        if rec.reserved != uint32(0) {
+            return nil, fmt.Errorf("Invalid reserved")
+        }
+    }
+
+    return rec, nil
+}
+
+// Return blocks of Ns in sequence with name
+func (tb *TwoBit) NBlocks(name string) (map[int]int, error) {
+    rec, err := tb.parseRecord(name, true)
+    if err != nil {
+        return nil, err
+    }
+
+    return rec.nBlocks, nil
+}
+
 // Read entire sequence.
 func (tb *TwoBit) Read(name string) (string, error) {
     return tb.ReadRange(name, 0, 0)
@@ -135,40 +193,12 @@ func (tb *TwoBit) Read(name string) (string, error) {
 
 // Read sequence from start to end.
 func (tb *TwoBit) ReadRange(name string, start, end int) (string, error) {
-    offset, ok := tb.index[name]
-    if !ok {
-        return "", fmt.Errorf("Invalid sequence name: %s", name)
-    }
-
-    tb.reader.Seek(int64(offset), 0)
-
-    var dnaSize uint32
-    err := binary.Read(tb.reader, tb.hdr.byteOrder, &dnaSize)
+    rec, err := tb.parseRecord(name, true)
     if err != nil {
-        return "", fmt.Errorf("Failed to read dnaSize: %s", err)
+        return "", err
     }
 
-    nBlocks, err := tb.readBlockCoords()
-    if err != nil {
-        return "", fmt.Errorf("Failed to read nBlocks: %s", err)
-    }
-
-    mBlocks, err := tb.readBlockCoords()
-    if err != nil {
-        return "", fmt.Errorf("Failed to read mBlocks: %s", err)
-    }
-
-    var reserved uint32
-    err = binary.Read(tb.reader, tb.hdr.byteOrder, &reserved)
-    if err != nil {
-        return "", fmt.Errorf("Failed to read reserved: %s", err)
-    }
-
-    if reserved != uint32(0) {
-        return "", fmt.Errorf("Invalid reserved")
-    }
-
-    bases := int(dnaSize)
+    bases := int(rec.dnaSize)
     size := tb.packedSize(bases)
 
     // TODO: handle -1 ?
@@ -226,7 +256,7 @@ func (tb *TwoBit) ReadRange(name string, start, end int) (string, error) {
 
     seq := dna.Bytes()[0:bases]
 
-    for bi, cnt := range nBlocks {
+    for bi, cnt := range rec.nBlocks {
         if (bi+cnt) < start || bi > end {
             continue
         }
@@ -244,7 +274,7 @@ func (tb *TwoBit) ReadRange(name string, start, end int) (string, error) {
         }
     }
 
-    for bi, cnt := range mBlocks {
+    for bi, cnt := range rec.mBlocks {
         if (bi+cnt) < start || bi > end {
             continue
         }
@@ -283,7 +313,45 @@ func NewReader(r io.ReadSeeker) (*TwoBit, error) {
     return tb, nil
 }
 
-// Returns the number of sequences in the 2bit file
+// Returns the length for sequence with name
+func (tb *TwoBit) Length(name string) (int, error) {
+    rec, err := tb.parseRecord(name, false)
+    if err != nil {
+        return -1, err
+    }
+
+    return int(rec.dnaSize), nil
+}
+
+// Returns the length for sequence with name but does not count Ns
+func (tb *TwoBit) LengthNoN(name string) (int, error) {
+    rec, err := tb.parseRecord(name, true)
+    if err != nil {
+        return -1, err
+    }
+
+    n := 0
+    for _, cnt := range rec.nBlocks {
+        n += cnt
+    }
+
+    return int(rec.dnaSize)-n, nil
+}
+
+// Returns the names of sequences in the 2bit file
+func (tb *TwoBit) Names() ([]string) {
+    names := make([]string, len(tb.index))
+
+    i := 0
+    for n := range tb.index {
+        names[i] = n
+        i++
+    }
+
+    return names
+}
+
+// Returns the count of sequences in the 2bit file
 func (tb *TwoBit) Count() (int) {
     return int(tb.hdr.count)
 }
