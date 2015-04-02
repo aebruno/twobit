@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD style
 // license that can be found in the LICENSE file.
 
+// Package twobit implements the 2bit compact randomly-accessible file format
+// for storing DNA sequence data.
 package twobit
 
 import (
@@ -11,6 +13,7 @@ import (
     "encoding/binary"
 )
 
+// 2bit header
 type header struct {
     sig         uint32
     version     uint32
@@ -19,16 +22,19 @@ type header struct {
     byteOrder   binary.ByteOrder
 }
 
+// TwoBit stores the file index and header information of the 2bit file
 type TwoBit struct {
     reader       io.ReadSeeker
     hdr          header
     index        map[string]int
 }
 
+// Return the size in packed bytes of a dna sequence. 4 bases per byte
 func (tb *TwoBit) packedSize(dnaSize int) (int) {
     return (dnaSize + 3) >> 2
 }
 
+// Parse the file index of a 2bit file
 func (tb *TwoBit) parseIndex() (error) {
     tb.index = make(map[string]int)
 
@@ -57,6 +63,7 @@ func (tb *TwoBit) parseIndex() (error) {
     return nil
 }
 
+// Parse the header of a 2bit file
 func (tb *TwoBit) parseHeader() (error) {
     b := make([]byte, 16)
     _, err := io.ReadFull(tb.reader, b)
@@ -88,6 +95,7 @@ func (tb *TwoBit) parseHeader() (error) {
     return nil
 }
 
+// Parse the nBlock and mBlock coordinates
 func (tb *TwoBit) readBlockCoords() (map[int]int, error) {
     var count uint32
     err := binary.Read(tb.reader, tb.hdr.byteOrder, &count)
@@ -120,7 +128,13 @@ func (tb *TwoBit) readBlockCoords() (map[int]int, error) {
     return blocks, nil
 }
 
-func (tb *TwoBit) Read(name string, start, end int) (string, error) {
+// Read entire sequence.
+func (tb *TwoBit) Read(name string) (string, error) {
+    return tb.ReadRange(name, 0, 0)
+}
+
+// Read sequence from start to end.
+func (tb *TwoBit) ReadRange(name string, start, end int) (string, error) {
     offset, ok := tb.index[name]
     if !ok {
         return "", fmt.Errorf("Invalid sequence name: %s", name)
@@ -252,6 +266,7 @@ func (tb *TwoBit) Read(name string, start, end int) (string, error) {
     return string(seq), nil
 }
 
+// NewReader returns a new TwoBit file reader which reads from r
 func NewReader(r io.ReadSeeker) (*TwoBit, error) {
     tb := new(TwoBit)
     tb.reader = r
@@ -268,10 +283,12 @@ func NewReader(r io.ReadSeeker) (*TwoBit, error) {
     return tb, nil
 }
 
+// Returns the number of sequences in the 2bit file
 func (tb *TwoBit) Count() (int) {
     return int(tb.hdr.count)
 }
 
+// Returns the version of the 2bit file
 func (tb *TwoBit) Version() (int) {
     return int(tb.hdr.version)
 }

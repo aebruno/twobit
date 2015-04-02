@@ -52,7 +52,7 @@ func TestRead(t *testing.T) {
         t.Errorf("%s", err)
     }
 
-    _, err = tb.Read("not-found", 0, 0)
+    _, err = tb.Read("not-found")
     if err == nil {
         t.Errorf("Found non-existent name")
     }
@@ -67,7 +67,7 @@ func TestRead(t *testing.T) {
     }
 
     for good, coords := range regions {
-        seq, err := tb.Read("ex1", coords[0], coords[1])
+        seq, err := tb.ReadRange("ex1", coords[0], coords[1])
         if err != nil {
             t.Errorf("Failed to read sequence: %s", err)
         }
