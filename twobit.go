@@ -38,7 +38,7 @@ type TwoBit struct {
 }
 
 // Return the size in packed bytes of a dna sequence. 4 bases per byte
-func (tb *TwoBit) packedSize(dnaSize int) (int) {
+func packedSize(dnaSize int) (int) {
     return (dnaSize + 3) >> 2
 }
 
@@ -199,7 +199,6 @@ func (tb *TwoBit) ReadRange(name string, start, end int) (string, error) {
     }
 
     bases := int(rec.dnaSize)
-    size := tb.packedSize(bases)
 
     // TODO: handle -1 ?
     if start < 0 {
@@ -221,9 +220,9 @@ func (tb *TwoBit) ReadRange(name string, start, end int) (string, error) {
     }
 
     bases = end-start
-    size = tb.packedSize(bases)
+    size := packedSize(bases)
     if start > 0 {
-        shift := tb.packedSize(start)
+        shift := packedSize(start)
         if start % 4 != 0 {
             shift--
             size++
@@ -242,7 +241,7 @@ func (tb *TwoBit) ReadRange(name string, start, end int) (string, error) {
 
         buf := make([]byte, 4)
         for j := 3; j >= 0; j-- {
-            buf[j] = NT_BYTES[base & 0x3]
+            buf[j] = BYTES2NT[base & 0x3]
             base >>= 2
         }
 
@@ -359,4 +358,47 @@ func (tb *TwoBit) Count() (int) {
 // Returns the version of the 2bit file
 func (tb *TwoBit) Version() (int) {
     return int(tb.hdr.version)
+}
+
+// Unpack array of bytes to DNA string of length sz
+func Unpack(raw []byte, sz int) (string) {
+    var dna bytes.Buffer
+    for _, base := range raw {
+        buf := make([]byte, 4)
+        for j := 3; j >= 0; j-- {
+            buf[j] = BYTES2NT[base & 0x3]
+            base >>= 2
+        }
+
+        dna.Write(buf)
+    }
+
+    return string(dna.Bytes()[0:sz])
+}
+
+// Packs DNA sequence string into an array of bytes. 4 bases per byte.
+func Pack(s string) ([]byte, error) {
+    sz := len(s)
+    out := make([]byte, packedSize(sz))
+
+    idx := 0
+    for i := range out {
+        var b uint8
+        for j := 0; j < 4; j++ {
+            val := NT2BYTES['T']
+            if idx < sz {
+                v, ok := NT2BYTES[s[idx]]
+                if !ok {
+                    return nil, fmt.Errorf("Unsupported base: %c", s[idx])
+                }
+                val = v
+            }
+            b <<= 2
+            b += val
+            idx++
+        }
+        out[i] = b
+    }
+
+    return out, nil
 }

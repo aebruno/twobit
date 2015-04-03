@@ -114,3 +114,25 @@ func TestRead(t *testing.T) {
         }
     }
 }
+
+func TestPack(t *testing.T) {
+    seqs := map[string]string {
+        "ACTgcctttnnnNantnaCgc": "ACTGCCTTTTTTTATTTACGC",
+        "ACTg"                 : "ACTG",
+        "AC"                   : "AC",
+        "ACcgcgcgcgcgcg"       : "ACCGCGCGCGCGCG",
+    }
+
+    for from, to := range seqs {
+        p, err := Pack(from)
+        if err != nil {
+            t.Errorf("Failed to pack sequence: %s", err)
+        }
+
+        b := Unpack(p, len(from))
+
+        if to != b {
+            t.Errorf("Invalid sequence packing: %s != %s", to, b)
+        }
+    }
+}
