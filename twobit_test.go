@@ -6,10 +6,13 @@ package twobit
 
 import (
     "testing"
+    "bytes"
+    "bufio"
     "os"
+    "reflect"
 )
 
-func openTestTwoBit() (*TwoBit, error) {
+func openTestTwoBit() (*Reader, error) {
     f, err := os.Open("examples/simple.2bit")
     if err != nil {
         return nil, err
@@ -135,4 +138,65 @@ func TestPack(t *testing.T) {
             t.Errorf("Invalid sequence packing: %s != %s", to, b)
         }
     }
+}
+
+func TestAdd(t *testing.T) {
+    tb := NewWriter()
+
+    name := "ex1"
+    seq  := "ACTgcctttnnnNantnaCgc"
+
+    err := tb.Add(name, seq)
+    if err != nil {
+        t.Errorf("Failed to add sequence: %s", err)
+    }
+
+    if len(tb.records) != 1 {
+        t.Errorf("Invalid sequence count: %d != %d", len(tb.records), 1)
+    }
+
+    rec, ok := tb.records[name]
+    if !ok {
+        t.Errorf("ex1 sequence not found")
+    }
+
+    unpacked := Unpack(rec.sequence, len(seq))
+    good := "ACTGCCTTTTTTTATTTACGC"
+    if unpacked != good {
+        t.Errorf("Invalid packed sequence: %s != %s", unpacked, good)
+    }
+
+    if len(rec.nBlocks) != 3 {
+        t.Errorf("invalid nBlock count: %d != %d", len(rec.nBlocks), 3)
+    }
+
+    if len(rec.mBlocks) != 3 {
+        t.Errorf("invalid mBlock count: %d != %d", len(rec.mBlocks), 3)
+    }
+
+    nBlocks := map[int]int{9:4, 14:1, 16:1}
+    mBlocks := map[int]int{3:9, 13:5, 19:2}
+
+    if !reflect.DeepEqual(nBlocks, rec.nBlocks) {
+        t.Errorf("invalid nBlocks : %#v != %#v", nBlocks, rec.nBlocks)
+    }
+
+    if !reflect.DeepEqual(mBlocks, rec.mBlocks) {
+        t.Errorf("invalid mBlocks : %#v != %#v", mBlocks, rec.mBlocks)
+    }
+}
+
+func TestWrite(t *testing.T) {
+    tb := NewWriter()
+
+    name := "ex1"
+    seq  := "ACTgcctttnnnNantnaCgc"
+
+    err := tb.Add(name, seq)
+    if err != nil {
+        t.Errorf("Failed to add sequence: %s", err)
+    }
+
+    var out bytes.Buffer
+    tb.WriteTo(bufio.NewWriter(&out))
 }

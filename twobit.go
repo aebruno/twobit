@@ -28,14 +28,19 @@ type seqRecord struct {
     nBlocks      map[int]int
     mBlocks      map[int]int
     reserved     uint32
+    sequence     []byte
 }
 
 // TwoBit stores the file index and header information of the 2bit file
-type TwoBit struct {
+type twoBit struct {
     reader       io.ReadSeeker
     hdr          header
     index        map[string]int
+    records      map[string]*seqRecord
 }
+
+type Reader twoBit
+type Writer twoBit
 
 // Return the size in packed bytes of a dna sequence. 4 bases per byte
 func packedSize(dnaSize int) (int) {
@@ -43,77 +48,77 @@ func packedSize(dnaSize int) (int) {
 }
 
 // Parse the file index of a 2bit file
-func (tb *TwoBit) parseIndex() (error) {
-    tb.index = make(map[string]int)
+func (r *Reader) parseIndex() (error) {
+    r.index = make(map[string]int)
 
-    for i := 0; i < tb.Count(); i++ {
+    for i := 0; i < r.Count(); i++ {
         var size uint8
-        err := binary.Read(tb.reader, tb.hdr.byteOrder, &size)
+        err := binary.Read(r.reader, r.hdr.byteOrder, &size)
         if err != nil {
             return fmt.Errorf("Failed to read file index: %s", err)
         }
 
         name := make([]byte, size)
-        err = binary.Read(tb.reader, tb.hdr.byteOrder, &name)
+        err = binary.Read(r.reader, r.hdr.byteOrder, &name)
         if err != nil {
             return fmt.Errorf("Failed to read file index: %s", err)
         }
 
         var offset uint32
-        err = binary.Read(tb.reader, tb.hdr.byteOrder, &offset)
+        err = binary.Read(r.reader, r.hdr.byteOrder, &offset)
         if err != nil {
             return fmt.Errorf("Failed to read file index: %s", err)
         }
 
-        tb.index[string(name)] = int(offset)
+        r.index[string(name)] = int(offset)
     }
 
     return nil
 }
 
 // Parse the header of a 2bit file
-func (tb *TwoBit) parseHeader() (error) {
+func (r *Reader) parseHeader() (error) {
     b := make([]byte, 16)
-    _, err := io.ReadFull(tb.reader, b)
+    _, err := io.ReadFull(r.reader, b)
     if err != nil {
         return err
     }
 
-    tb.hdr.sig = binary.BigEndian.Uint32(b[0:4])
-    tb.hdr.byteOrder = binary.BigEndian
+    r.hdr.sig = binary.BigEndian.Uint32(b[0:4])
+    r.hdr.byteOrder = binary.BigEndian
 
-    if tb.hdr.sig != 0x1A412743 {
-        tb.hdr.sig = binary.LittleEndian.Uint32(b[0:4])
-        tb.hdr.byteOrder = binary.LittleEndian
-        if tb.hdr.sig != 0x1A412743 {
+    if r.hdr.sig != SIG {
+        r.hdr.sig = binary.LittleEndian.Uint32(b[0:4])
+        r.hdr.byteOrder = binary.LittleEndian
+        if r.hdr.sig != SIG {
             return fmt.Errorf("Invalid sig. Not a 2bit file?")
         }
     }
 
-    tb.hdr.version = tb.hdr.byteOrder.Uint32(b[4:8])
-    if tb.hdr.version != uint32(0) {
-        return fmt.Errorf("Unsupported version %d", tb.hdr.version)
+    r.hdr.version = r.hdr.byteOrder.Uint32(b[4:8])
+    if r.hdr.version != uint32(0) {
+        return fmt.Errorf("Unsupported version %d", r.hdr.version)
     }
-    tb.hdr.count = tb.hdr.byteOrder.Uint32(b[8:12])
-    tb.hdr.reserved = tb.hdr.byteOrder.Uint32(b[12:16])
-    if tb.hdr.reserved != uint32(0) {
-        return fmt.Errorf("Reserved != 0. got %d", tb.hdr.reserved)
+    r.hdr.count = r.hdr.byteOrder.Uint32(b[8:12])
+    r.hdr.reserved = r.hdr.byteOrder.Uint32(b[12:16])
+    if r.hdr.reserved != uint32(0) {
+        return fmt.Errorf("Reserved != 0. got %d", r.hdr.reserved)
     }
 
     return nil
 }
 
 // Parse the nBlock and mBlock coordinates
-func (tb *TwoBit) parseBlockCoords() (map[int]int, error) {
+func (r *Reader) parseBlockCoords() (map[int]int, error) {
     var count uint32
-    err := binary.Read(tb.reader, tb.hdr.byteOrder, &count)
+    err := binary.Read(r.reader, r.hdr.byteOrder, &count)
     if err != nil {
         return nil, fmt.Errorf("Failed to read blockCount: %s", err)
     }
 
     starts := make([]uint32, count)
     for i := range(starts) {
-        err = binary.Read(tb.reader, tb.hdr.byteOrder, &starts[i])
+        err = binary.Read(r.reader, r.hdr.byteOrder, &starts[i])
         if err != nil {
             return nil, fmt.Errorf("Failed to block start: %s", err)
         }
@@ -121,7 +126,7 @@ func (tb *TwoBit) parseBlockCoords() (map[int]int, error) {
 
     sizes := make([]uint32, count)
     for i := range(sizes) {
-        err = binary.Read(tb.reader, tb.hdr.byteOrder, &sizes[i])
+        err = binary.Read(r.reader, r.hdr.byteOrder, &sizes[i])
         if err != nil {
             return nil, fmt.Errorf("Failed to block size: %s", err)
         }
@@ -137,33 +142,33 @@ func (tb *TwoBit) parseBlockCoords() (map[int]int, error) {
 }
 
 // Parse the sequence record information
-func (tb *TwoBit) parseRecord(name string, coords bool) (*seqRecord, error) {
+func (r *Reader) parseRecord(name string, coords bool) (*seqRecord, error) {
     rec := new(seqRecord)
 
-    offset, ok := tb.index[name]
+    offset, ok := r.index[name]
     if !ok {
         return nil, fmt.Errorf("Invalid sequence name: %s", name)
     }
 
-    tb.reader.Seek(int64(offset), 0)
+    r.reader.Seek(int64(offset), 0)
 
-    err := binary.Read(tb.reader, tb.hdr.byteOrder, &rec.dnaSize)
+    err := binary.Read(r.reader, r.hdr.byteOrder, &rec.dnaSize)
     if err != nil {
         return nil, fmt.Errorf("Failed to read dnaSize: %s", err)
     }
 
     if coords {
-        rec.nBlocks, err = tb.parseBlockCoords()
+        rec.nBlocks, err = r.parseBlockCoords()
         if err != nil {
             return nil, fmt.Errorf("Failed to read nBlocks: %s", err)
         }
 
-        rec.mBlocks, err = tb.parseBlockCoords()
+        rec.mBlocks, err = r.parseBlockCoords()
         if err != nil {
             return nil, fmt.Errorf("Failed to read mBlocks: %s", err)
         }
 
-        err = binary.Read(tb.reader, tb.hdr.byteOrder, &rec.reserved)
+        err = binary.Read(r.reader, r.hdr.byteOrder, &rec.reserved)
         if err != nil {
             return nil, fmt.Errorf("Failed to read reserved: %s", err)
         }
@@ -177,8 +182,8 @@ func (tb *TwoBit) parseRecord(name string, coords bool) (*seqRecord, error) {
 }
 
 // Return blocks of Ns in sequence with name
-func (tb *TwoBit) NBlocks(name string) (map[int]int, error) {
-    rec, err := tb.parseRecord(name, true)
+func (r *Reader) NBlocks(name string) (map[int]int, error) {
+    rec, err := r.parseRecord(name, true)
     if err != nil {
         return nil, err
     }
@@ -187,13 +192,13 @@ func (tb *TwoBit) NBlocks(name string) (map[int]int, error) {
 }
 
 // Read entire sequence.
-func (tb *TwoBit) Read(name string) (string, error) {
-    return tb.ReadRange(name, 0, 0)
+func (r *Reader) Read(name string) (string, error) {
+    return r.ReadRange(name, 0, 0)
 }
 
 // Read sequence from start to end.
-func (tb *TwoBit) ReadRange(name string, start, end int) (string, error) {
-    rec, err := tb.parseRecord(name, true)
+func (r *Reader) ReadRange(name string, start, end int) (string, error) {
+    rec, err := r.parseRecord(name, true)
     if err != nil {
         return "", err
     }
@@ -228,13 +233,13 @@ func (tb *TwoBit) ReadRange(name string, start, end int) (string, error) {
             size++
         }
 
-        tb.reader.Seek(int64(shift), 1)
+        r.reader.Seek(int64(shift), 1)
     }
 
     var dna bytes.Buffer
     for i := 0; i < size; i++ {
         var base byte
-        err = binary.Read(tb.reader, tb.hdr.byteOrder, &base)
+        err = binary.Read(r.reader, r.hdr.byteOrder, &base)
         if err != nil {
             return "", fmt.Errorf("Failed to read base: %s", err)
         }
@@ -296,8 +301,8 @@ func (tb *TwoBit) ReadRange(name string, start, end int) (string, error) {
 }
 
 // NewReader returns a new TwoBit file reader which reads from r
-func NewReader(r io.ReadSeeker) (*TwoBit, error) {
-    tb := new(TwoBit)
+func NewReader(r io.ReadSeeker) (*Reader, error) {
+    tb := new(Reader)
     tb.reader = r
     err := tb.parseHeader()
     if err != nil {
@@ -313,8 +318,8 @@ func NewReader(r io.ReadSeeker) (*TwoBit, error) {
 }
 
 // Returns the length for sequence with name
-func (tb *TwoBit) Length(name string) (int, error) {
-    rec, err := tb.parseRecord(name, false)
+func (r *Reader) Length(name string) (int, error) {
+    rec, err := r.parseRecord(name, false)
     if err != nil {
         return -1, err
     }
@@ -323,8 +328,8 @@ func (tb *TwoBit) Length(name string) (int, error) {
 }
 
 // Returns the length for sequence with name but does not count Ns
-func (tb *TwoBit) LengthNoN(name string) (int, error) {
-    rec, err := tb.parseRecord(name, true)
+func (r *Reader) LengthNoN(name string) (int, error) {
+    rec, err := r.parseRecord(name, true)
     if err != nil {
         return -1, err
     }
@@ -338,11 +343,11 @@ func (tb *TwoBit) LengthNoN(name string) (int, error) {
 }
 
 // Returns the names of sequences in the 2bit file
-func (tb *TwoBit) Names() ([]string) {
-    names := make([]string, len(tb.index))
+func (r *Reader) Names() ([]string) {
+    names := make([]string, len(r.index))
 
     i := 0
-    for n := range tb.index {
+    for n := range r.index {
         names[i] = n
         i++
     }
@@ -351,13 +356,13 @@ func (tb *TwoBit) Names() ([]string) {
 }
 
 // Returns the count of sequences in the 2bit file
-func (tb *TwoBit) Count() (int) {
-    return int(tb.hdr.count)
+func (r *Reader) Count() (int) {
+    return int(r.hdr.count)
 }
 
 // Returns the version of the 2bit file
-func (tb *TwoBit) Version() (int) {
-    return int(tb.hdr.version)
+func (r *Reader) Version() (int) {
+    return int(r.hdr.version)
 }
 
 // Unpack array of bytes to DNA string of length sz
@@ -401,4 +406,79 @@ func Pack(s string) ([]byte, error) {
     }
 
     return out, nil
+}
+
+// New Writer
+func NewWriter() (*Writer) {
+    tb := new(Writer)
+    tb.records = make(map[string]*seqRecord)
+
+    return tb
+}
+
+func mapBlocks(seq string, check func(r rune) bool) map[int]int {
+    blocks := make(map[int]int)
+
+    n      := len(seq)
+    start  := 0
+    match  := false
+    isLast := false
+    for i := 0; i < n; i++ {
+        match = check(rune(seq[i]))
+        if match {
+            if !isLast {
+                start = i
+            }
+        } else {
+            if isLast {
+                blocks[start] = i - start
+            }
+        }
+        isLast = match
+    }
+
+    if isLast {
+        blocks[start] = n - start
+    }
+
+    return blocks
+}
+
+// Add sequence
+func (w *Writer) Add(name, seq string) (error) {
+    rec := new(seqRecord)
+    rec.dnaSize = uint32(len(seq))
+    rec.nBlocks = mapBlocks(seq, func(r rune) bool {
+        return r == 'N' || r == 'n'
+    })
+    rec.mBlocks = mapBlocks(seq, func(r rune) bool {
+        return r >= 'a' && r <= 'z'
+    })
+
+
+    pack, err := Pack(seq)
+    if err != nil {
+        return err
+    }
+
+    rec.sequence = pack
+
+    w.records[name] = rec
+
+    return nil
+}
+
+// Write sequences in 2bit format to out
+func (w *Writer) WriteTo(out io.Writer) (error) {
+    header := make([]byte, 16)
+    binary.LittleEndian.PutUint32(header[0:4], SIG)
+    binary.LittleEndian.PutUint32(header[4:8], uint32(0))
+    binary.LittleEndian.PutUint32(header[8:12], uint32(len(w.records)))
+    binary.LittleEndian.PutUint32(header[8:16], uint32(0))
+    _, err := out.Write(header)
+    if err != nil {
+        return err
+    }
+
+    return nil
 }
