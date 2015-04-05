@@ -10,6 +10,8 @@ import (
     "bufio"
     "os"
     "reflect"
+    "crypto/md5"
+    "fmt"
 )
 
 func openTestTwoBit() (*Reader, error) {
@@ -174,8 +176,17 @@ func TestAdd(t *testing.T) {
         t.Errorf("invalid mBlock count: %d != %d", len(rec.mBlocks), 3)
     }
 
-    nBlocks := map[int]int{9:4, 14:1, 16:1}
-    mBlocks := map[int]int{3:9, 13:5, 19:2}
+    nBlocks := []*Block{
+        &Block{start:9, count:4},
+        &Block{start:14, count:1},
+        &Block{start:16, count:1},
+    }
+
+    mBlocks := []*Block{
+        &Block{start:3, count:9},
+        &Block{start:13, count:5},
+        &Block{start:19, count:2},
+    }
 
     if !reflect.DeepEqual(nBlocks, rec.nBlocks) {
         t.Errorf("invalid nBlocks : %#v != %#v", nBlocks, rec.nBlocks)
@@ -187,16 +198,24 @@ func TestAdd(t *testing.T) {
 }
 
 func TestWrite(t *testing.T) {
-    tb := NewWriter()
+    tbw := NewWriter()
 
     name := "ex1"
     seq  := "ACTgcctttnnnNantnaCgc"
 
-    err := tb.Add(name, seq)
+    err := tbw.Add(name, seq)
     if err != nil {
         t.Errorf("Failed to add sequence: %s", err)
     }
 
     var out bytes.Buffer
-    tb.WriteTo(bufio.NewWriter(&out))
+    outWriter := bufio.NewWriter(&out)
+    tbw.WriteTo(outWriter)
+    outWriter.Flush()
+
+    twobitOut := out.Bytes()
+
+    if "e8366f5785d6bf4b34595668d1509cb3" != fmt.Sprintf("%x", md5.Sum(twobitOut)) {
+        t.Errorf("Invalid 2bit output. Failed md5sum check")
+    }
 }
