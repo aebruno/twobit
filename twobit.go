@@ -269,14 +269,15 @@ func (r *Reader) ReadRange(name string, start, end int) (string, error) {
         r.reader.Seek(int64(shift), 1)
     }
 
-    raw := make([]byte, size)
     dna := make([]byte, size*4)
-    _, err = r.reader.Read(raw)
-    if err != nil {
-        return "", fmt.Errorf("Failed to read bases: %s", err)
-    }
+    readBuf := bufio.NewReader(r.reader)
 
-    for i, base := range raw {
+    for i := 0; i < size; i++ {
+        base, err := readBuf.ReadByte()
+        if err != nil {
+            return "", fmt.Errorf("Failed to read base: %s", err)
+        }
+
         for j := 3; j >= 0; j-- {
             dna[(i*4)+j] = BYTES2NT[int(base & 0x3)]
             base >>= 2
