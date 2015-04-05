@@ -269,10 +269,11 @@ func (r *Reader) ReadRange(name string, start, end int) (string, error) {
         r.reader.Seek(int64(shift), 1)
     }
 
+    readBuf := bufio.NewReader(r.reader)
     var dna bytes.Buffer
     for i := 0; i < size; i++ {
         var base byte
-        err = binary.Read(r.reader, r.hdr.byteOrder, &base)
+        err = binary.Read(readBuf, r.hdr.byteOrder, &base)
         if err != nil {
             return "", fmt.Errorf("Failed to read base: %s", err)
         }
