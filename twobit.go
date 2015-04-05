@@ -10,6 +10,7 @@ import (
     "fmt"
     "io"
     "bytes"
+    "bufio"
     "encoding/binary"
 )
 
@@ -507,12 +508,14 @@ func (w *Writer) Add(name, seq string) (error) {
 
 // Write sequences in 2bit format to out
 func (w *Writer) WriteTo(out io.Writer) (error) {
+    outbuf := bufio.NewWriter(out)
+
     buf := make([]byte, 16)
     binary.LittleEndian.PutUint32(buf[0:4], SIG)
     binary.LittleEndian.PutUint32(buf[4:8], uint32(0))
     binary.LittleEndian.PutUint32(buf[8:12], uint32(len(w.records)))
     binary.LittleEndian.PutUint32(buf[12:16], uint32(0))
-    _, err := out.Write(buf)
+    _, err := outbuf.Write(buf)
     if err != nil {
         return err
     }
@@ -542,7 +545,7 @@ func (w *Writer) WriteTo(out io.Writer) (error) {
         idx += 4
     }
 
-    _, err = out.Write(buf)
+    _, err = outbuf.Write(buf)
     if err != nil {
         return err
     }
@@ -582,10 +585,15 @@ func (w *Writer) WriteTo(out io.Writer) (error) {
 
         copy(buf[idx:sz], rec.sequence[:])
 
-        _, err := out.Write(buf)
+        _, err := outbuf.Write(buf)
         if err != nil {
             return err
         }
+    }
+
+    err = outbuf.Flush()
+    if err != nil {
+        return err
     }
 
     return nil
