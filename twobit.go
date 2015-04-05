@@ -269,30 +269,21 @@ func (r *Reader) ReadRange(name string, start, end int) (string, error) {
         r.reader.Seek(int64(shift), 1)
     }
 
-    readBuf := bufio.NewReader(r.reader)
-    var dna bytes.Buffer
-    for i := 0; i < size; i++ {
-        var base byte
-        err = binary.Read(readBuf, r.hdr.byteOrder, &base)
-        if err != nil {
-            return "", fmt.Errorf("Failed to read base: %s", err)
-        }
-
-        buf := make([]byte, 4)
-        for j := 3; j >= 0; j-- {
-            buf[j] = BYTES2NT[base & 0x3]
-            base >>= 2
-        }
-
-        if i == 0 {
-            dna.Write(buf[(start%4):])
-            continue
-        }
-
-        dna.Write(buf)
+    raw := make([]byte, size)
+    dna := make([]byte, size*4)
+    _, err = r.reader.Read(raw)
+    if err != nil {
+        return "", fmt.Errorf("Failed to read bases: %s", err)
     }
 
-    seq := dna.Bytes()[0:bases]
+    for i, base := range raw {
+        for j := 3; j >= 0; j-- {
+            dna[(i*4)+j] = BYTES2NT[int(base & 0x3)]
+            base >>= 2
+        }
+    }
+
+    seq := dna[(start%4):(start%4)+bases]
 
     for _, b := range rec.nBlocks {
         if b.Length() < start || b.start > end {
@@ -407,7 +398,7 @@ func Unpack(raw []byte, sz int) (string) {
     for _, base := range raw {
         buf := make([]byte, 4)
         for j := 3; j >= 0; j-- {
-            buf[j] = BYTES2NT[base & 0x3]
+            buf[j] = BYTES2NT[int(base & 0x3)]
             base >>= 2
         }
 

@@ -12,11 +12,11 @@ const BASE_C = 'C'
 const BASE_A = 'A'
 const BASE_G = 'G'
 
-var BYTES2NT = map[uint8]byte{
-    uint8(0): BASE_T,
-    uint8(1): BASE_C,
-    uint8(2): BASE_A,
-    uint8(3): BASE_G,
+var BYTES2NT = []byte{
+    BASE_T,
+    BASE_C,
+    BASE_A,
+    BASE_G,
 }
 
 var NT2BYTES = map[byte]uint8{
