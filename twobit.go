@@ -85,34 +85,43 @@ func (r *Reader) parseIndex() (error) {
     r.index = make(map[string]int)
 
     for i := 0; i < r.Count(); i++ {
-        var size uint8
-        err := binary.Read(r.reader, r.hdr.byteOrder, &size)
+        size := make([]byte, 1)
+        _, err := r.reader.Read(size)
         if err != nil {
             return fmt.Errorf("Failed to read file index: %s", err)
         }
 
-        name := make([]byte, size)
-        err = binary.Read(r.reader, r.hdr.byteOrder, &name)
+        name := make([]byte, size[0])
+        _, err = r.reader.Read(name)
         if err != nil {
             return fmt.Errorf("Failed to read file index: %s", err)
         }
 
-        var offset uint32
-        err = binary.Read(r.reader, r.hdr.byteOrder, &offset)
+        offset := make([]byte, 4)
+        _, err = r.reader.Read(offset)
         if err != nil {
             return fmt.Errorf("Failed to read file index: %s", err)
         }
 
-        r.index[string(name)] = int(offset)
+        r.index[string(name)] = int(r.hdr.byteOrder.Uint32(offset))
     }
 
     return nil
 }
 
+/*
+// Seek to given offset in file
+func (r *Reader) Seek(offset int64) (int64, error) {
+    n, err := r.readseeker.Seek(offset, 0)
+    r.reader.Reset(r.readseeker)
+    return n, err
+}
+*/
+
 // Parse the header of a 2bit file
 func (r *Reader) parseHeader() (error) {
     b := make([]byte, 16)
-    _, err := io.ReadFull(r.reader, b)
+    _, err := r.reader.Read(b)
     if err != nil {
         return err
     }
@@ -143,26 +152,30 @@ func (r *Reader) parseHeader() (error) {
 
 // Parse the nBlock and mBlock coordinates
 func (r *Reader) parseBlockCoords() ([]*Block, error) {
-    var count uint32
-    err := binary.Read(r.reader, r.hdr.byteOrder, &count)
+    buf := make([]byte, 4)
+    _, err := r.reader.Read(buf)
     if err != nil {
         return nil, fmt.Errorf("Failed to read blockCount: %s", err)
     }
 
+    count := r.hdr.byteOrder.Uint32(buf)
+
     starts := make([]uint32, count)
     for i := range(starts) {
-        err = binary.Read(r.reader, r.hdr.byteOrder, &starts[i])
+        _, err := r.reader.Read(buf)
         if err != nil {
             return nil, fmt.Errorf("Failed to block start: %s", err)
         }
+        starts[i] = r.hdr.byteOrder.Uint32(buf)
     }
 
     sizes := make([]uint32, count)
     for i := range(sizes) {
-        err = binary.Read(r.reader, r.hdr.byteOrder, &sizes[i])
+        _, err := r.reader.Read(buf)
         if err != nil {
             return nil, fmt.Errorf("Failed to block size: %s", err)
         }
+        sizes[i] = r.hdr.byteOrder.Uint32(buf)
     }
 
     blocks := make([]*Block, len(starts))
@@ -185,10 +198,13 @@ func (r *Reader) parseRecord(name string, coords bool) (*seqRecord, error) {
 
     r.reader.Seek(int64(offset), 0)
 
-    err := binary.Read(r.reader, r.hdr.byteOrder, &rec.dnaSize)
+    buf := make([]byte, 4)
+    _, err := r.reader.Read(buf)
     if err != nil {
         return nil, fmt.Errorf("Failed to read dnaSize: %s", err)
     }
+
+    rec.dnaSize = r.hdr.byteOrder.Uint32(buf)
 
     if coords {
         rec.nBlocks, err = r.parseBlockCoords()
@@ -201,10 +217,12 @@ func (r *Reader) parseRecord(name string, coords bool) (*seqRecord, error) {
             return nil, fmt.Errorf("Failed to read mBlocks: %s", err)
         }
 
-        err = binary.Read(r.reader, r.hdr.byteOrder, &rec.reserved)
+        _, err = r.reader.Read(buf)
         if err != nil {
             return nil, fmt.Errorf("Failed to read reserved: %s", err)
         }
+
+        rec.reserved = r.hdr.byteOrder.Uint32(buf)
 
         if rec.reserved != uint32(0) {
             return nil, fmt.Errorf("Invalid reserved")
@@ -225,15 +243,15 @@ func (r *Reader) NBlocks(name string) ([]*Block, error) {
 }
 
 // Read entire sequence.
-func (r *Reader) Read(name string) (string, error) {
+func (r *Reader) Read(name string) ([]byte, error) {
     return r.ReadRange(name, 0, 0)
 }
 
 // Read sequence from start to end.
-func (r *Reader) ReadRange(name string, start, end int) (string, error) {
+func (r *Reader) ReadRange(name string, start, end int) ([]byte, error) {
     rec, err := r.parseRecord(name, true)
     if err != nil {
-        return "", err
+        return nil, err
     }
 
     bases := int(rec.dnaSize)
@@ -254,7 +272,7 @@ func (r *Reader) ReadRange(name string, start, end int) (string, error) {
     }
 
     if end <= start {
-        return "", fmt.Errorf("Invalid range: %d-%d", start, end)
+        return nil, fmt.Errorf("Invalid range: %d-%d", start, end)
     }
 
     bases = end-start
@@ -270,17 +288,33 @@ func (r *Reader) ReadRange(name string, start, end int) (string, error) {
     }
 
     dna := make([]byte, size*4)
-    readBuf := bufio.NewReader(r.reader)
+    chunks := size/defaultBufSize
+    if size % defaultBufSize > 0 {
+        chunks++
+    }
 
-    for i := 0; i < size; i++ {
-        base, err := readBuf.ReadByte()
-        if err != nil {
-            return "", fmt.Errorf("Failed to read base: %s", err)
+    buf := make([]byte, defaultBufSize)
+
+    i := 0
+    for c := 0; c < chunks; c++ {
+        sz := defaultBufSize
+        if i+defaultBufSize > size {
+            sz = size % defaultBufSize
+        }
+        n, err := r.reader.Read(buf[0:sz])
+        if n != sz {
+            return nil, fmt.Errorf("Failed to read %d dna bytes: %s", sz, err)
+        } else if err != nil && err != io.EOF {
+            return nil, fmt.Errorf("Failed to read dna bytes: %s", err)
         }
 
-        for j := 3; j >= 0; j-- {
-            dna[(i*4)+j] = BYTES2NT[int(base & 0x3)]
-            base >>= 2
+        for k := 0; k < n; k++ {
+            base := buf[k]
+            for j := 3; j >= 0; j-- {
+                dna[(i*4)+j] = BYTES2NT[int(base & 0x3)]
+                base >>= 2
+            }
+            i++
         }
     }
 
@@ -325,7 +359,7 @@ func (r *Reader) ReadRange(name string, start, end int) (string, error) {
         }
     }
 
-    return string(seq), nil
+    return seq, nil
 }
 
 // NewReader returns a new TwoBit file reader which reads from r

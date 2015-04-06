@@ -6,6 +6,8 @@ package twobit
 
 const SIG = 0x1A412743
 
+const defaultBufSize = 4096
+
 const BASE_N = 'N'
 const BASE_T = 'T'
 const BASE_C = 'C'

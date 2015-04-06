@@ -114,7 +114,7 @@ func TestRead(t *testing.T) {
             t.Errorf("Failed to read sequence: %s", err)
         }
 
-        if seq != good {
+        if string(seq) != good {
             t.Errorf("Invalid sequence: %s != %s", seq, good)
         }
     }
