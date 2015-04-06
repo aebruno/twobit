@@ -49,6 +49,20 @@ type twoBit struct {
 type Reader twoBit
 type Writer twoBit
 
+func init() {
+    NT2BYTES = make([]byte, 256)
+    NT2BYTES[BASE_N]    = uint8(0)
+    NT2BYTES[BASE_T]    = uint8(0)
+    NT2BYTES[BASE_C]    = uint8(1)
+    NT2BYTES[BASE_A]    = uint8(2)
+    NT2BYTES[BASE_G]    = uint8(3)
+    NT2BYTES[BASE_N+32] = uint8(0)
+    NT2BYTES[BASE_T+32] = uint8(0)
+    NT2BYTES[BASE_C+32] = uint8(1)
+    NT2BYTES[BASE_A+32] = uint8(2)
+    NT2BYTES[BASE_G+32] = uint8(3)
+}
+
 // Return the size in packed bytes of a dna sequence. 4 bases per byte
 func packedSize(dnaSize int) (int) {
     return (dnaSize + 3) >> 2
@@ -454,11 +468,8 @@ func Pack(s string) ([]byte, error) {
         for j := 0; j < 4; j++ {
             val := NT2BYTES['T']
             if idx < sz {
-                v, ok := NT2BYTES[s[idx]]
-                if !ok {
-                    return nil, fmt.Errorf("Unsupported base: %c", s[idx])
-                }
-                val = v
+                // TODO: add check for unsupported base?
+                val = NT2BYTES[s[idx]]
             }
             b <<= 2
             b += val
