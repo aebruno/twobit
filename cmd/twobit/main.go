@@ -7,9 +7,13 @@ package main
 import (
     "os"
     "github.com/codegangsta/cli"
+//    "runtime/pprof"
 )
 
 func main() {
+    //p, _ := os.Create("twobit.cpuprofile")
+    //pprof.StartCPUProfile(p)
+    //defer pprof.StopCPUProfile()
     app := cli.NewApp()
     app.Name    = "twobit"
     app.Authors = []cli.Author{cli.Author{Name: "Andrew E. Bruno", Email: "aeb@qnot.org"}}

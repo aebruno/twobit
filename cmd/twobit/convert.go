@@ -9,14 +9,15 @@ import (
     "bufio"
     "log"
     "github.com/aebruno/twobit"
+    "github.com/aebruno/gofasta"
 )
 
 func ToFasta(in, out string) {
     if len(in) == 0 {
-        log.Fatalln("Please provide an input file")
+        log.Fatalln("Please provide an input file (.2bit)")
     }
     if len(out) == 0 {
-        log.Fatalln("Please provide an output file")
+        log.Fatalln("Please provide an output file (.fa)")
     }
 
     inFile, err := os.Open(in)
@@ -71,4 +72,38 @@ func ToFasta(in, out string) {
 }
 
 func To2bit(in, out string) {
+    if len(in) == 0 {
+        log.Fatalln("Please provide an input file (.fa)")
+    }
+    if len(out) == 0 {
+        log.Fatalln("Please provide an output file (.2bit)")
+    }
+
+    inFile, err := os.Open(in)
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    defer inFile.Close()
+
+    tb := twobit.NewWriter()
+
+    for rec := range gofasta.SimpleParser(inFile) {
+        err := tb.Add(rec.Id, rec.Seq)
+        if err != nil {
+            log.Fatal(err)
+        }
+    }
+
+    outFile, err := os.Create(out)
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    defer outFile.Close()
+
+    err = tb.WriteTo(outFile)
+    if err != nil {
+        log.Fatal(err)
+    }
 }
