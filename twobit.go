@@ -489,7 +489,7 @@ func NewWriter() (*Writer) {
     return tb
 }
 
-func mapBlocks(seq string, check func(r rune) bool) []*Block {
+func mapMBlocks(seq string) []*Block {
     blocks := make([]*Block, 0)
 
     n      := len(seq)
@@ -497,7 +497,35 @@ func mapBlocks(seq string, check func(r rune) bool) []*Block {
     match  := false
     isLast := false
     for i := 0; i < n; i++ {
-        match = check(rune(seq[i]))
+        match = seq[i] >= 'a' && seq[i] <= 'z'
+        if match {
+            if !isLast {
+                start = i
+            }
+        } else {
+            if isLast {
+                blocks = append(blocks, &Block{start:start, count: i-start})
+            }
+        }
+        isLast = match
+    }
+
+    if isLast {
+        blocks = append(blocks, &Block{start:start, count: n-start})
+    }
+
+    return blocks
+}
+
+func mapNBlocks(seq string) []*Block {
+    blocks := make([]*Block, 0)
+
+    n      := len(seq)
+    start  := 0
+    match  := false
+    isLast := false
+    for i := 0; i < n; i++ {
+        match = seq[i] == 'N' || seq[i] == 'n'
         if match {
             if !isLast {
                 start = i
@@ -524,13 +552,8 @@ func (w *Writer) Add(name, seq string) (error) {
     }
     rec := new(seqRecord)
     rec.dnaSize = uint32(len(seq))
-    rec.nBlocks = mapBlocks(seq, func(r rune) bool {
-        return r == 'N' || r == 'n'
-    })
-    rec.mBlocks = mapBlocks(seq, func(r rune) bool {
-        return r >= 'a' && r <= 'z'
-    })
-
+    rec.nBlocks = mapNBlocks(seq)
+    rec.mBlocks = mapMBlocks(seq)
 
     pack, err := Pack(seq)
     if err != nil {
